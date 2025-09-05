@@ -8,7 +8,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -33,18 +32,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// register API routes
-await registerRoutes(app);
-
-// error handling
+// error handling middleware
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const status = err.status || err.statusCode || 500;
   const message = err.message || "Internal Server Error";
   res.status(status).json({ message });
 });
 
-// serve static frontend
+// serve static files
 serveStatic(app);
 
-// **Export as serverless handler**
-export default (req: VercelRequest, res: VercelResponse) => app(req, res);
+// **Export default async handler**
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
+    await registerRoutes(app); // move registerRoutes inside handler
+    app(req, res);
+  } catch (err: any) {
+    console.error("Function error:", err);
+    res.status(500).json({ message: err.message || "Internal Server Error" });
+  }
+}
