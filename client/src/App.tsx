@@ -5,12 +5,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Home from "@/pages/home";
 import SharePage from "@/pages/share";
+import PrivateChatPage from "@/pages/private-chat";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/chat" component={PrivateChatPage} />
       <Route path="/:code" component={SharePage} />
       <Route component={NotFound} />
     </Switch>

@@ -1,19 +1,24 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { insertShareSchema, insertChatMessageSchema } from "@shared/schema";
+import { insertShareSchema, insertChatMessageSchema, insertPrivateChatSessionSchema, insertPrivateChatMessageSchema } from "@shared/schema";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 
-// File upload configuration
+// Extend Express Request type to include file
+interface MulterRequest extends Request {
+  file?: Express.Multer.File;
+}
+
+// File upload configuration - Extended to 5GB
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 2 * 1024 * 1024, // 2MB limit
+    fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit
   },
 });
 
@@ -87,7 +92,7 @@ async function fetchUrlMetadata(url: string) {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create share endpoint
-  app.post("/api/shares", createShareLimiter, upload.single('file'), async (req, res) => {
+  app.post("/api/shares", createShareLimiter, upload.single('file'), async (req: MulterRequest, res) => {
     try {
       const { type, content, password, expiresIn, oneTimeView } = req.body;
       
@@ -168,7 +173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Increment view count and handle one-time view
       const updatedShare = await storage.updateShare(code.toUpperCase(), {
-        viewCount: share.viewCount + 1
+        viewCount: (share.viewCount || 0) + 1
       });
 
       if (share.oneTimeView) {
@@ -182,7 +187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fileName: share.fileName,
         fileSize: share.fileSize,
         expiresAt: share.expiresAt,
-        viewCount: updatedShare?.viewCount || share.viewCount + 1
+        viewCount: updatedShare?.viewCount || (share.viewCount || 0) + 1
       };
 
       // Decode file content for file shares
@@ -241,6 +246,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(messages);
     } catch (error) {
       console.error('Error retrieving messages:', error);
+      res.status(500).json({ error: "Failed to retrieve messages" });
+    }
+  });
+
+  // Private chat endpoints
+  app.post("/api/private-chat", async (req, res) => {
+    try {
+      const code = generateCode();
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
+      
+      const session = await storage.createPrivateChatSession({
+        code,
+        expiresAt,
+        activeUsers: 0
+      });
+
+      res.json({ 
+        success: true, 
+        session: {
+          code: session.code,
+          expiresAt: session.expiresAt
+        }
+      });
+    } catch (error) {
+      console.error('Error creating private chat:', error);
+      res.status(500).json({ error: "Failed to create private chat" });
+    }
+  });
+
+  app.get("/api/private-chat/:code", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const session = await storage.getPrivateChatSession(code.toUpperCase());
+      
+      if (!session) {
+        return res.status(404).json({ error: "Chat room not found or expired" });
+      }
+
+      res.json({
+        code: session.code,
+        expiresAt: session.expiresAt,
+        activeUsers: session.activeUsers
+      });
+    } catch (error) {
+      console.error('Error retrieving private chat:', error);
+      res.status(500).json({ error: "Failed to retrieve chat room" });
+    }
+  });
+
+  app.get("/api/private-chat/:code/messages", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const messages = await storage.getPrivateChatMessages(code.toUpperCase());
+      res.json(messages);
+    } catch (error) {
+      console.error('Error retrieving private chat messages:', error);
       res.status(500).json({ error: "Failed to retrieve messages" });
     }
   });
@@ -327,6 +388,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }));
         }
 
+        if (message.type === 'joinPrivateChat') {
+          const { chatCode, userId } = message;
+          
+          // Verify private chat session exists
+          const session = await storage.getPrivateChatSession(chatCode.toUpperCase());
+          if (!session) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Private chat room not found or expired' }));
+            return;
+          }
+
+          // Add client to private chat room
+          clients.set(ws, { ws, shareCode: chatCode.toUpperCase(), userId });
+          
+          if (!shareRooms.has(chatCode.toUpperCase())) {
+            shareRooms.set(chatCode.toUpperCase(), new Set());
+          }
+          shareRooms.get(chatCode.toUpperCase())!.add(ws);
+
+          // Update session active users
+          await storage.updatePrivateChatSession(chatCode.toUpperCase(), {
+            activeUsers: shareRooms.get(chatCode.toUpperCase())!.size
+          });
+
+          // Notify all clients in room about user count
+          const roomClients = shareRooms.get(chatCode.toUpperCase());
+          if (roomClients) {
+            const userCount = roomClients.size;
+            roomClients.forEach(client => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                  type: 'userCount',
+                  count: userCount,
+                  expiresAt: session.expiresAt
+                }));
+              }
+            });
+          }
+
+          // Send private chat history
+          const messages = await storage.getPrivateChatMessages(chatCode.toUpperCase());
+          ws.send(JSON.stringify({
+            type: 'chatHistory',
+            messages: messages.map(msg => ({
+              id: msg.id,
+              message: msg.message,
+              userId: msg.userId,
+              createdAt: msg.createdAt
+            }))
+          }));
+        }
+
         if (message.type === 'message') {
           const client = clients.get(ws);
           if (!client) return;
@@ -339,6 +451,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
 
           // Broadcast to all clients in room
+          const roomClients = shareRooms.get(client.shareCode);
+          if (roomClients) {
+            const broadcastMessage = JSON.stringify({
+              type: 'newMessage',
+              message: {
+                id: chatMessage.id,
+                message: chatMessage.message,
+                userId: chatMessage.userId,
+                createdAt: chatMessage.createdAt
+              }
+            });
+
+            roomClients.forEach(roomClient => {
+              if (roomClient.readyState === WebSocket.OPEN) {
+                roomClient.send(broadcastMessage);
+              }
+            });
+          }
+        }
+
+        if (message.type === 'privateMessage') {
+          const client = clients.get(ws);
+          if (!client) return;
+
+          // Save private chat message
+          const chatMessage = await storage.createPrivateChatMessage({
+            chatCode: client.shareCode,
+            message: message.content,
+            userId: client.userId
+          });
+
+          // Broadcast to all clients in private chat room
           const roomClients = shareRooms.get(client.shareCode);
           if (roomClients) {
             const broadcastMessage = JSON.stringify({

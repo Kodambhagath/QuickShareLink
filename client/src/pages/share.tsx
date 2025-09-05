@@ -10,6 +10,23 @@ import UrlPreview from "@/components/url-preview";
 import ChatInterface from "@/components/chat-interface";
 import { apiRequest } from "@/lib/queryClient";
 
+interface ShareData {
+  type?: string;
+  content?: string;
+  fileName?: string;
+  fileSize?: number;
+  expiresAt?: string;
+  viewCount?: number;
+  fileData?: string;
+  metadata?: {
+    title: string;
+    description: string;
+    image: string;
+    domain: string;
+  };
+  requiresPassword?: boolean;
+}
+
 export default function SharePage() {
   const { code } = useParams<{ code: string }>();
   const [password, setPassword] = useState("");
@@ -19,7 +36,7 @@ export default function SharePage() {
   const [chatUsers, setChatUsers] = useState(0);
   const { toast } = useToast();
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery<ShareData>({
     queryKey: ['/api/shares', code?.toUpperCase()],
     enabled: !!code,
   });
@@ -164,7 +181,7 @@ export default function SharePage() {
               <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                 <i className="fas fa-clock"></i>
                 <span>
-                  Expires: {new Date(data.expiresAt).toLocaleString()}
+                  Expires: {data.expiresAt ? new Date(data.expiresAt).toLocaleString() : 'Unknown'}
                 </span>
               </div>
             </div>

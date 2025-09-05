@@ -1,4 +1,15 @@
-import { type Share, type InsertShare, type ChatMessage, type InsertChatMessage, type ChatSession, type InsertChatSession } from "@shared/schema";
+import { 
+  type Share, 
+  type InsertShare, 
+  type ChatMessage, 
+  type InsertChatMessage, 
+  type ChatSession, 
+  type InsertChatSession,
+  type PrivateChatSession,
+  type InsertPrivateChatSession,
+  type PrivateChatMessage,
+  type InsertPrivateChatMessage
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -17,6 +28,15 @@ export interface IStorage {
   createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
   getChatMessages(shareCode: string): Promise<ChatMessage[]>;
   
+  // Private chat operations
+  createPrivateChatSession(session: InsertPrivateChatSession): Promise<PrivateChatSession>;
+  getPrivateChatSession(chatCode: string): Promise<PrivateChatSession | undefined>;
+  updatePrivateChatSession(chatCode: string, updates: Partial<PrivateChatSession>): Promise<PrivateChatSession | undefined>;
+  deletePrivateChatSession(chatCode: string): Promise<boolean>;
+  
+  createPrivateChatMessage(message: InsertPrivateChatMessage): Promise<PrivateChatMessage>;
+  getPrivateChatMessages(chatCode: string): Promise<PrivateChatMessage[]>;
+  
   // Cleanup expired items
   cleanupExpired(): Promise<void>;
 }
@@ -25,12 +45,16 @@ export class MemStorage implements IStorage {
   private shares: Map<string, Share>;
   private chatSessions: Map<string, ChatSession>;
   private chatMessages: Map<string, ChatMessage[]>;
+  private privateChatSessions: Map<string, PrivateChatSession>;
+  private privateChatMessages: Map<string, PrivateChatMessage[]>;
   private cleanupInterval: NodeJS.Timeout;
 
   constructor() {
     this.shares = new Map();
     this.chatSessions = new Map();
     this.chatMessages = new Map();
+    this.privateChatSessions = new Map();
+    this.privateChatMessages = new Map();
     
     // Clean up expired items every minute
     this.cleanupInterval = setInterval(() => {
@@ -43,6 +67,10 @@ export class MemStorage implements IStorage {
     const share: Share = {
       ...insertShare,
       id,
+      password: insertShare.password || null,
+      fileName: insertShare.fileName || null,
+      fileSize: insertShare.fileSize || null,
+      oneTimeView: insertShare.oneTimeView || false,
       viewCount: 0,
       createdAt: new Date(),
     };
@@ -81,6 +109,7 @@ export class MemStorage implements IStorage {
     const session: ChatSession = {
       ...insertSession,
       id,
+      activeUsers: insertSession.activeUsers || 0,
       createdAt: new Date(),
     };
     this.chatSessions.set(session.shareCode, session);
@@ -134,23 +163,91 @@ export class MemStorage implements IStorage {
     return this.chatMessages.get(shareCode) || [];
   }
 
+  // Private chat operations
+  async createPrivateChatSession(insertSession: InsertPrivateChatSession): Promise<PrivateChatSession> {
+    const id = randomUUID();
+    const session: PrivateChatSession = {
+      ...insertSession,
+      id,
+      activeUsers: insertSession.activeUsers || 0,
+      createdAt: new Date(),
+    };
+    this.privateChatSessions.set(session.code, session);
+    return session;
+  }
+
+  async getPrivateChatSession(chatCode: string): Promise<PrivateChatSession | undefined> {
+    const session = this.privateChatSessions.get(chatCode);
+    if (!session) return undefined;
+    
+    // Check if expired
+    if (session.expiresAt < new Date()) {
+      this.privateChatSessions.delete(chatCode);
+      this.privateChatMessages.delete(chatCode);
+      return undefined;
+    }
+    
+    return session;
+  }
+
+  async updatePrivateChatSession(chatCode: string, updates: Partial<PrivateChatSession>): Promise<PrivateChatSession | undefined> {
+    const session = this.privateChatSessions.get(chatCode);
+    if (!session) return undefined;
+    
+    const updatedSession = { ...session, ...updates };
+    this.privateChatSessions.set(chatCode, updatedSession);
+    return updatedSession;
+  }
+
+  async deletePrivateChatSession(chatCode: string): Promise<boolean> {
+    this.privateChatMessages.delete(chatCode);
+    return this.privateChatSessions.delete(chatCode);
+  }
+
+  async createPrivateChatMessage(insertMessage: InsertPrivateChatMessage): Promise<PrivateChatMessage> {
+    const id = randomUUID();
+    const message: PrivateChatMessage = {
+      ...insertMessage,
+      id,
+      createdAt: new Date(),
+    };
+    
+    const messages = this.privateChatMessages.get(insertMessage.chatCode) || [];
+    messages.push(message);
+    this.privateChatMessages.set(insertMessage.chatCode, messages);
+    
+    return message;
+  }
+
+  async getPrivateChatMessages(chatCode: string): Promise<PrivateChatMessage[]> {
+    return this.privateChatMessages.get(chatCode) || [];
+  }
+
   async cleanupExpired(): Promise<void> {
     const now = new Date();
     
     // Cleanup expired shares
-    for (const [code, share] of this.shares.entries()) {
+    Array.from(this.shares.entries()).forEach(([code, share]) => {
       if (share.expiresAt < now) {
         this.shares.delete(code);
       }
-    }
+    });
     
     // Cleanup expired chat sessions
-    for (const [shareCode, session] of this.chatSessions.entries()) {
+    Array.from(this.chatSessions.entries()).forEach(([shareCode, session]) => {
       if (session.expiresAt < now) {
         this.chatSessions.delete(shareCode);
         this.chatMessages.delete(shareCode);
       }
-    }
+    });
+    
+    // Cleanup expired private chat sessions
+    Array.from(this.privateChatSessions.entries()).forEach(([chatCode, session]) => {
+      if (session.expiresAt < now) {
+        this.privateChatSessions.delete(chatCode);
+        this.privateChatMessages.delete(chatCode);
+      }
+    });
   }
 }
 

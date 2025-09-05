@@ -14,9 +14,10 @@ interface ChatInterfaceProps {
   shareCode: string;
   onClose: () => void;
   onUserCountChange: (count: number) => void;
+  isPrivateChat?: boolean;
 }
 
-export default function ChatInterface({ shareCode, onClose, onUserCountChange }: ChatInterfaceProps) {
+export default function ChatInterface({ shareCode, onClose, onUserCountChange, isPrivateChat = false }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isConnected, setIsConnected] = useState(false);
@@ -37,8 +38,9 @@ export default function ChatInterface({ shareCode, onClose, onUserCountChange }:
     ws.onopen = () => {
       setIsConnected(true);
       ws.send(JSON.stringify({
-        type: 'join',
-        shareCode,
+        type: isPrivateChat ? 'joinPrivateChat' : 'join',
+        shareCode: isPrivateChat ? shareCode : shareCode,
+        chatCode: isPrivateChat ? shareCode : undefined,
         userId
       }));
     };
@@ -114,7 +116,7 @@ export default function ChatInterface({ shareCode, onClose, onUserCountChange }:
     if (!newMessage.trim() || !isConnected || !wsRef.current) return;
 
     wsRef.current.send(JSON.stringify({
-      type: 'message',
+      type: isPrivateChat ? 'privateMessage' : 'message',
       content: newMessage.trim()
     }));
 

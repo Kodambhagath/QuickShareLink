@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import CreateShareForm from "@/components/create-share-form";
 import ShareDisplay from "@/components/share-display";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const [shareResult, setShareResult] = useState<any>(null);
@@ -15,8 +17,12 @@ export default function Home() {
               <i className="fas fa-share-alt text-primary text-xl"></i>
               <h1 className="text-xl font-semibold text-foreground">QuickShare</h1>
             </div>
-            <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-              <span>Temporary file & text sharing</span>
+            <div className="flex items-center space-x-4">
+              <Link href="/chat">
+                <Button variant="outline" size="sm" data-testid="button-private-chat">
+                  <i className="fas fa-comments mr-2"></i>Private Chat
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
@@ -76,7 +82,7 @@ export default function Home() {
               </div>
               <div className="flex items-center space-x-2">
                 <i className="fas fa-upload text-purple-500"></i>
-                <span>2MB File Limit</span>
+                <span>5GB File Limit</span>
               </div>
               <div className="flex items-center space-x-2">
                 <i className="fas fa-comments text-orange-500"></i>

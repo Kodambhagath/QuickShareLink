@@ -120,10 +120,10 @@ export default function CreateShareForm({ onShareCreated }: CreateShareFormProps
           });
           return;
         }
-        if (file.size > 2 * 1024 * 1024) {
+        if (file.size > 5 * 1024 * 1024 * 1024) {
           toast({
             title: "Error",
-            description: "File size must be less than 2MB",
+            description: "File size must be less than 5GB",
             variant: "destructive",
           });
           return;
@@ -138,10 +138,10 @@ export default function CreateShareForm({ onShareCreated }: CreateShareFormProps
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.size > 2 * 1024 * 1024) {
+      if (selectedFile.size > 5 * 1024 * 1024 * 1024) {
         toast({
           title: "Error",
-          description: "File size must be less than 2MB",
+          description: "File size must be less than 5GB",
           variant: "destructive",
         });
         return;
@@ -266,7 +266,7 @@ export default function CreateShareForm({ onShareCreated }: CreateShareFormProps
                   <i className="fas fa-cloud-upload-alt text-3xl text-muted-foreground"></i>
                   <div>
                     <p className="text-sm font-medium text-foreground">Drop files here or click to browse</p>
-                    <p className="text-xs text-muted-foreground mt-1">Maximum file size: 2MB</p>
+                    <p className="text-xs text-muted-foreground mt-1">Maximum file size: 5GB</p>
                   </div>
                   <input
                     type="file"
@@ -350,7 +350,7 @@ export default function CreateShareForm({ onShareCreated }: CreateShareFormProps
               <Checkbox
                 id="oneTime"
                 checked={oneTimeView}
-                onCheckedChange={setOneTimeView}
+                onCheckedChange={(checked) => setOneTimeView(checked === true)}
                 data-testid="checkbox-onetime"
               />
               <label htmlFor="oneTime" className="text-sm text-foreground">
