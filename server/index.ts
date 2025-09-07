@@ -5,9 +5,11 @@ import { VercelRequest, VercelResponse } from "@vercel/node";
 
 const app = express();
 
+// Middleware to parse JSON and URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -23,8 +25,12 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      if (logLine.length > 80) logLine = logLine.slice(0, 79) + "…";
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
       log(logLine);
     }
   });
@@ -32,21 +38,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// error handling middleware
+// Error handling middleware
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   const status = err.status || err.statusCode || 500;
   const message = err.message || "Internal Server Error";
   res.status(status).json({ message });
 });
 
-// serve static files
+// Serve static files from client/dist
 serveStatic(app);
 
-// **Export default async handler**
+// The serverless handler
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    await registerRoutes(app); // move registerRoutes inside handler
-    app(req, res);
+    // Register routes on each invocation (serverless environment)
+    await registerRoutes(app);
+
+    // Pass the request to the Express app
+    app(req as any, res as any);
   } catch (err: any) {
     console.error("Function error:", err);
     res.status(500).json({ message: err.message || "Internal Server Error" });
